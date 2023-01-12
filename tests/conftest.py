@@ -46,20 +46,25 @@ def amount(asset):
 
 
 @pytest.fixture(scope="session")
-def atoken():
-    return Contract(A_ASSET_ADDRESS)
+def atoken(accounts):
+    return accounts[A_ASSET_ADDRESS]
 
 
 @pytest.fixture(scope="session")
 def aave_lending_pool():
     # NOTE: adding default contract type because it's not verified
-    return Contract("0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9", project.ILendingPool.contract_type)
+    return Contract(
+        "0x7d2768dE32b0b80b7a3454c06BdAc94A69DDc7A9", project.ILendingPool.contract_type
+    )
 
 
 @pytest.fixture(scope="session")
 def aave_protocol_provider():
     # NOTE: adding default contract type because it's not verified
-    return Contract("0x057835Ad21a177dbdd3090bB1CAE03EaCF78Fc6d", project.IProtocolDataProvider.contract_type)
+    return Contract(
+        "0x057835Ad21a177dbdd3090bB1CAE03EaCF78Fc6d",
+        project.IProtocolDataProvider.contract_type,
+    )
 
 
 @pytest.fixture(scope="session")

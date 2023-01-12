@@ -194,8 +194,11 @@ contract Strategy is BaseStrategy, Ownable {
             address(this)
         );
 
+        /// Peer-to-peer supply ///
+
         uint256 repaidToPool;
-        if (_amount > 0 && !market.isP2PDisabled) {
+        if (!market.isP2PDisabled) {
+            // Match the peer-to-peer borrow delta.
             if (delta.p2pBorrowDelta > 0) {
                 uint256 matchedDelta = Math.min(
                     WadRayMath.rayMul(
@@ -213,6 +216,7 @@ contract Strategy is BaseStrategy, Ownable {
                 _amount -= matchedDelta;
             }
 
+            // Promote pool borrowers.
             if (_amount > 0) {
                 address firstPoolBorrower = MORPHO.getHead(
                     aToken,
@@ -241,14 +245,14 @@ contract Strategy is BaseStrategy, Ownable {
             }
         }
 
-        uint256 suppliedToPool;
-        if (_amount > 0) {
-            supplyBalance.onPool += WadRayMath.rayDiv(
-                _amount,
-                indexes.poolSupplyIndex
-            );
-            suppliedToPool = _amount;
-        }
+        /// Pool supply ///
+
+        // Supply on pool.
+        uint256 suppliedToPool = _amount;
+        supplyBalance.onPool += WadRayMath.rayDiv(
+            suppliedToPool,
+            indexes.poolSupplyIndex
+        );
 
         (uint256 poolSupplyRate, uint256 variableBorrowRate) = getAaveRates(
             suppliedToPool,
@@ -288,26 +292,56 @@ contract Strategy is BaseStrategy, Ownable {
             aToken,
             address(this)
         );
-        _amount = Math.min(supplyBalance.onPool + supplyBalance.inP2P, _amount);
 
-        uint256 withdrawmFromPool = Math.min(
-            WadRayMath.rayMul(supplyBalance.onPool, indexes.poolSupplyIndex),
-            _amount
-        );
-        supplyBalance.onPool -= WadRayMath.rayDiv(
-            withdrawmFromPool,
-            indexes.poolSupplyIndex
-        );
-        _amount -= withdrawmFromPool;
+        /// Pool withdraw ///
 
-        if (_amount > 0) {
-            supplyBalance.inP2P -= WadRayMath.rayDiv(
-                _amount,
-                indexes.p2pSupplyIndex
+        // Withdraw supply on pool.
+        uint256 withdrawnFromPool;
+        if (supplyBalance.onPool > 0) {
+            withdrawnFromPool += Math.min(
+                WadRayMath.rayMul(
+                    supplyBalance.onPool,
+                    indexes.poolSupplyIndex
+                ),
+                _amount
             );
 
-            // try to match p2p
-            // removing this step would save gas but it will result in predicting lower apr
+            supplyBalance.onPool -= WadRayMath.rayDiv(
+                withdrawnFromPool,
+                indexes.poolSupplyIndex
+            );
+            _amount -= withdrawnFromPool;
+        }
+
+        // Reduce the peer-to-peer supply delta.
+        if (delta.p2pSupplyDelta > 0) {
+            uint256 matchedDelta = Math.min(
+                WadRayMath.rayMul(
+                    delta.p2pSupplyDelta,
+                    indexes.poolSupplyIndex
+                ),
+                _amount
+            );
+
+            supplyBalance.inP2P -= WadRayMath.rayDiv(
+                matchedDelta,
+                indexes.p2pSupplyIndex
+            );
+            delta.p2pSupplyDelta -= Math.min(
+                delta.p2pSupplyDelta,
+                WadRayMath.rayDiv(
+                    matchedDelta,
+                    indexes.poolSupplyIndex
+                )
+            );
+            withdrawnFromPool += matchedDelta;
+            _amount -= matchedDelta;
+        }
+
+        /// Transfer withdraw ///
+
+        // Promote pool suppliers.
+        if (_amount > 0 && supplyBalance.inP2P > 0 && !market.isP2PDisabled) {
             address firstPoolSupplier = MORPHO.getHead(
                 aToken,
                 IMorpho.PositionType.SUPPLIERS_ON_POOL
@@ -316,22 +350,43 @@ contract Strategy is BaseStrategy, Ownable {
                 .supplyBalanceInOf(aToken, firstPoolSupplier)
                 .onPool;
 
-            uint256 matchedP2P = Math.min(
-                WadRayMath.rayMul(
-                    firstPoolSupplierBalance,
-                    indexes.poolSupplyIndex
-                ),
-                _amount
-            );
-            _amount -= matchedP2P;
+            if (firstPoolSupplierBalance > 0) {
+                uint256 matchedP2P = Math.min(
+                    WadRayMath.rayMul(
+                        firstPoolSupplierBalance,
+                        indexes.poolSupplyIndex
+                    ),
+                    _amount
+                );
+
+                supplyBalance.inP2P -= WadRayMath.rayDiv(
+                    matchedP2P,
+                    indexes.p2pSupplyIndex
+                );
+                withdrawnFromPool += matchedP2P;
+                _amount -= matchedP2P;
+            }
         }
 
-        // _amount represents amount removed from p2p deals
+        /// Breaking withdraw ///
+
+        // Demote peer-to-peer borrowers.
+        uint256 borrowedFromPool = Math.min(
+            WadRayMath.rayMul(supplyBalance.inP2P, indexes.p2pSupplyIndex),
+            _amount
+        );
+        if (borrowedFromPool > 0) {
+            delta.p2pSupplyAmount -= Math.min(
+                delta.p2pSupplyAmount,
+                WadRayMath.rayDiv(borrowedFromPool, indexes.p2pSupplyIndex)
+            );
+        }
+
         (uint256 poolSupplyRate, uint256 variableBorrowRate) = getAaveRates(
             0,
-            _amount,
+            borrowedFromPool,
             0,
-            withdrawmFromPool
+            withdrawnFromPool
         );
 
         uint256 p2pSupplyRate = computeP2PSupplyRatePerYear(

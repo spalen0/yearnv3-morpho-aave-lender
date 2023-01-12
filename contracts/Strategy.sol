@@ -175,10 +175,12 @@ contract Strategy is BaseStrategy, Ownable {
     function aprAfterDebtChange(
         int256 delta
     ) external view returns (uint256 apr) {
-        if (delta < 0) {
-            apr = aprAfterLiquidityWithdraw(uint256(-delta));
-        } else {
+        if (delta == 0) {
+            apr = LENS.getCurrentUserSupplyRatePerYear(aToken, address(this));
+        } else if (delta > 0) {
             apr = aprAfterLiquiditySupply(uint256(delta));
+        } else {
+            apr = aprAfterLiquidityWithdraw(uint256(-delta));
         }
         apr = apr / WadRayMath.WAD_RAY_RATIO;
     }
@@ -329,10 +331,7 @@ contract Strategy is BaseStrategy, Ownable {
             );
             delta.p2pSupplyDelta -= Math.min(
                 delta.p2pSupplyDelta,
-                WadRayMath.rayDiv(
-                    matchedDelta,
-                    indexes.poolSupplyIndex
-                )
+                WadRayMath.rayDiv(matchedDelta, indexes.poolSupplyIndex)
             );
             withdrawnFromPool += matchedDelta;
             _amount -= matchedDelta;

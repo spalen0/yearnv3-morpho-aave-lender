@@ -1,4 +1,4 @@
-from ape import Contract
+from ape import Contract, project
 import pytest
 
 
@@ -9,7 +9,6 @@ def test_apr(
     gov,
     amount,
     provide_strategy_with_debt,
-    atoken,
     aave_lending_pool,
     aave_protocol_provider,
 ):
@@ -17,7 +16,10 @@ def test_apr(
     expected_apr = strategy.aprAfterDebtChange(amount)
 
     # calculate aave supply rate after supplying amount
-    interest_rate_contract = Contract(aave_lending_pool.getReserveData(asset)[10])
+    interest_rate_contract = Contract(
+        aave_lending_pool.getReserveData(asset)[10],
+        project.IReserveInterestRateStrategy.contract_type,
+    )
     pool_data = aave_protocol_provider.getReserveData(asset)
     reserve_factor = aave_protocol_provider.getReserveConfigurationData(asset)[4]
     aave_supply_rate = (
@@ -49,7 +51,6 @@ def test_apr_after_asset_deposit(
     gov,
     amount,
     provide_strategy_with_debt,
-    atoken,
     whale,
 ):
     amount_to_deposit = int(amount / 2)
@@ -71,7 +72,6 @@ def test_apr_after_asset_withdraw(
     gov,
     amount,
     provide_strategy_with_debt,
-    atoken,
     whale,
 ):
     vault, strategy = create_vault_and_strategy(gov, amount)
